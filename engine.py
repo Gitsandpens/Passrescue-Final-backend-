@@ -2,6 +2,7 @@ import json, os, random, time, urllib.request
 from datetime import datetime, timedelta, timezone
 from skyfield.api import EarthSatellite, load, wgs84
 from ortools.sat.python import cp_model
+from tle_source import download
 
 TS = load.timescale()
 SATS = {25994: ("Terra", "X"), 27424: ("Aqua", "X"), 33591: ("NOAA-19", "S"), 37849: ("Suomi NPP", "X"),
@@ -14,21 +15,25 @@ WEIGHT = {1: 1000, 2: 300, 3: 100}          # priority 1 = critical
 MOVE_COST = 40
 
 
+FILE = os.path.join(os.path.dirname(__file__), "tles.json")
+
+
 def tles():
-    f = os.path.join(os.path.dirname(__file__), "tles.json")
-    if os.path.exists(f) and time.time() - os.path.getmtime(f) < 43200:
-        return json.load(open(f))
+    cached = json.load(open(FILE)) if os.path.exists(FILE) else None
+    if cached and time.time() - os.path.getmtime(FILE) < 43200:
+        return cached
     try:
-        out = {}
-        for n in SATS:
-            u = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={n}&FORMAT=tle"
-            out[str(n)] = urllib.request.urlopen(u, timeout=20).read().decode().strip().splitlines()[:3]
-        json.dump(out, open(f, "w"))
+        out = download()
+        try:
+            json.dump(out, open(FILE, "w"))
+        except OSError:
+            pass
         return out
-    except Exception:
-        if os.path.exists(f):
-            return json.load(open(f))
-        raise RuntimeError("Could not download orbital elements from CelesTrak and no cached copy exists.")
+    except Exception as e:
+        print("Orbital data refresh failed:", e, flush=True)
+        if cached:
+            return cached
+        raise
 
 
 def passes(t0, hours, tl):
